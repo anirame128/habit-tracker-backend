@@ -1,0 +1,32 @@
+{
+  "name": "habit-tracker",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@kinde-oss/kinde-auth-react": "^4.0.4",
+    "@kinde-oss/kinde-node-express": "^1.6.0",
+    "bad-words": "^4.0.0",
+    "bcrypt": "^5.1.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "express-rate-limit": "^7.4.1",
+    "jsonwebtoken": "^9.0.2",
+    "neo4j-driver": "^5.26.0",
+    "nodemailer": "^6.9.16",
+    "uuid": "^11.0.3",
+    "validator": "^13.12.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.7"
+  }
+}
