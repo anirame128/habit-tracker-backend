@@ -189,7 +189,6 @@ router.post('/register', async (req, res) => {
     }
 });
 
-
 // POST: Verify a users email while registering
 router.post('/verify-email', async (req, res) => {
     const { email, code } = req.body;
@@ -279,6 +278,30 @@ router.post('/login', async (req, res) => {
         res.status(500).json({ error: "An unexpected error occurred during sign-in" });
     } finally {
         await session.close();
+    }
+});
+
+// POST: Log-out a user from platform
+router.post('logout', async (req, res) => {
+    //get token from website headers
+    const token = req.headers.authorization?.split(" ")[1];
+
+    if(!token) {
+        return restart.status(400).json({error: "Token is required for logout"});
+    }
+
+    try {
+        const decoded = jwt.verify(token, SECRET_KEY);
+
+        res.status(200).json({message: "Logout successful"});
+    } catch (err) {
+        console.error("Error during logout:", err);
+
+        if(err.name === "TokenExpiredError") {
+            return res.status(400).json({error:"Token has already expired"})
+        }
+
+        res.status(500).json({error: "An unexpected error occured during logout"})
     }
 });
 
