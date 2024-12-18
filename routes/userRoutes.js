@@ -6,7 +6,7 @@ const nodemailer = require("nodemailer");
 require('dotenv').config();
 const rateLimit = require('express-rate-limit');
 const validator = require('validator');
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const SECRET_KEY = process.env.JWT_SECRET_KEY
 let verificationCodes = {};
