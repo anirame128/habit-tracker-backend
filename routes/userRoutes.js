@@ -89,33 +89,46 @@ router.put('/update-profile', authenticateToken, upload.single('image'), async (
             imageUrl = result.Location;
         }
 
-        // Update the user node in Neo4j
-        const query = `
+        // Parse habits string
+        const parsedHabits = habits ? JSON.parse(habits) : [];
+
+        console.log("Parsed habits:", parsedHabits); // Debug to verify habits
+
+        // Start a transaction for Neo4j updates
+        const tx = session.beginTransaction();
+
+        // Update the user's username and profile image (if provided)
+        const userUpdateQuery = `
             MATCH (u:User {id: $userId})
-            SET u.username = $username,
-                u.habits = $habits
+            SET u.username = $username
             ${imageUrl ? ", u.profileImage = $imageUrl" : ""}
-            RETURN u
         `;
+        await tx.run(userUpdateQuery, { userId, username, ...(imageUrl && { imageUrl }) });
 
-        const params = {
-            userId,
-            username,
-            habits: JSON.parse(habits), // Parse habits JSON
-            ...(imageUrl && { imageUrl }),
-        };
+        // Remove all existing "HAS" relationships for the user
+        const deleteRelationshipsQuery = `
+            MATCH (u:User {id: $userId})-[r:HAS]->(:Habit)
+            DELETE r
+        `;
+        await tx.run(deleteRelationshipsQuery, { userId });
 
-        const resultNeo4j = await session.run(query, params);
-
-        if (resultNeo4j.records.length === 0) {
-            return res.status(404).json({ error: "User not found" });
+        // Create new "HAS" relationships for the selected habits
+        for (const habit of parsedHabits) {
+            const createRelationshipQuery = `
+                MATCH (u:User {id: $userId}), (h:Habit {name: $habitName})
+                MERGE (u)-[:HAS]->(h)
+            `;
+            await tx.run(createRelationshipQuery, { userId, habitName: habit });
         }
+
+        // Commit the transaction
+        await tx.commit();
 
         res.status(200).json({
             message: "Profile updated successfully",
             profileImage: imageUrl,
             username,
-            habits: JSON.parse(habits),
+            habits: parsedHabits,
         });
     } catch (err) {
         console.error("Error updating profile:", err);
