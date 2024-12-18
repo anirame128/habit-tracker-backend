@@ -124,40 +124,53 @@ router.post('/register', async (req, res) => {
     const { firstName, lastName, email, password, confirmEmail, confirmPassword } = req.body;
 
     // Validation
-    if (!validator.isEmail(email)) {
-        return res.status(400).json({ error: "Invalid email address" });
-    }
-    if (email !== confirmEmail) {
-        return res.status(400).json({ error: "Emails do not match" });
-    }
-    if (password !== confirmPassword) {
-        return res.status(400).json({ error: "Passwords do not match" });
-    }
-    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
-    if (!passwordRegex.test(password)) {
-        return res.status(400).json({
-            error: "Password must be at least 8 characters, include uppercase, lowercase, numbers, and symbols",
-        });
+    const validateInputs = () => {
+        if (!validator.isEmail(email)) {
+            return "Invalid email address";
+        }
+        if (email !== confirmEmail) {
+            return "Emails do not match";
+        }
+        if (password !== confirmPassword) {
+            return "Passwords do not match";
+        }
+        const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+        if (!passwordRegex.test(password)) {
+            return "Password must be at least 8 characters, include uppercase, lowercase, numbers, and symbols";
+        }
+        return null;
+    };
+
+    const validationError = validateInputs();
+    if (validationError) {
+        return res.status(400).json({ error: validationError });
     }
 
     const session = driver.session();
     try {
+        // Check if email already exists
         const emailCheckQuery = 'MATCH (u:User {email: $email}) RETURN u';
         const result = await session.run(emailCheckQuery, { email });
 
         if (result.records.length > 0) {
-            return res.status(400).json({ error: "Email is already registered" });
+            // If email exists, send a specific error response
+            return res.status(409).json({ error: "Email is already registered" }); // 409 Conflict
         }
 
+        // Hash the password
         const hashedPassword = await bcrypt.hash(password, 10);
+
+        // Generate verification code
         const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
         userDataStore[email] = { firstName, lastName, password: hashedPassword };
         verificationCodes[email] = verificationCode;
 
+        // Expire verification code after 10 minutes
         setTimeout(() => {
             delete verificationCodes[email];
         }, 10 * 60 * 1000);
 
+        // Send verification email
         const mailOptions = {
             from: process.env.EMAIL_USER,
             to: email,
@@ -166,14 +179,16 @@ router.post('/register', async (req, res) => {
         };
 
         await transporter.sendMail(mailOptions);
+
         res.status(200).json({ message: "Verification code sent to email" });
     } catch (err) {
-        console.error(err);
+        console.error("Registration Error:", err);
         res.status(500).json({ error: "An unexpected error occurred during registration" });
     } finally {
         await session.close();
     }
 });
+
 
 // POST: Verify a users email while registering
 router.post('/verify-email', async (req, res) => {
