@@ -283,7 +283,13 @@ router.post('/login', async (req, res) => {
 
 // POST: Log-out a user from platform
 router.post('/logout', async (req, res) => {
-    const token = req.headers.authorization?.split(" ")[1]; // Extract token
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader) {
+        return res.status(400).json({ error: "Authorization header is required" });
+    }
+
+    const token = authHeader.split(" ")[1]; // Extract token
 
     if (!token) {
         return res.status(400).json({ error: "Token is required for logout" });
@@ -292,13 +298,16 @@ router.post('/logout', async (req, res) => {
     try {
         const decoded = jwt.verify(token, SECRET_KEY); // Verify token
 
-        // Optionally handle token blacklisting here
+        // (Optional) Add token to a blacklist if required
+
         res.status(200).json({ message: "Logout successful" });
     } catch (err) {
         console.error("Error during logout:", err);
 
         if (err.name === "TokenExpiredError") {
             return res.status(400).json({ error: "Token has already expired" });
+        } else if (err.name === "JsonWebTokenError") {
+            return res.status(400).json({ error: "Invalid token format" });
         }
 
         res.status(500).json({ error: "An unexpected error occurred during logout" });
