@@ -370,8 +370,8 @@ router.get('/user-info', async (req, res) => {
         return res.status(404).json({ error: "User not found" });
       }
   
-      const { firstName, lastName } = result.records[0].toObject();
-      res.status(200).json({ firstName, lastName });
+      const { firstName, lastName, username } = result.records[0].toObject();
+      res.status(200).json({ firstName, lastName, username });
     } catch (err) {
       console.error("Error fetching user info:", err);
       res.status(500).json({ error: "An unexpected error occurred" });
