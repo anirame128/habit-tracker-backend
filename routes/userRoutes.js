@@ -1,14 +1,17 @@
 const express = require('express');
 const router = express.Router();
 const driver = require('../db/neo4j');
-const { v4: uuidv4 } = require('uuid');
 const nodemailer = require("nodemailer");
 require('dotenv').config();
 const rateLimit = require('express-rate-limit');
 const validator = require('validator');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const multer = require('multer');
+const AWS = require('aws-sdk');
+
 const SECRET_KEY = process.env.JWT_SECRET_KEY
+
 let verificationCodes = {};
 let userDataStore = {};
 
@@ -35,12 +38,74 @@ const authenticateToken = (req, res, next) => {
         return res.status(403).json({ error: 'Invalid or expired token' });
     }
 };
+
 const transporter = nodemailer.createTransport({
     service: 'gmail', // Using Gmail
     auth: {
       user: process.env.EMAIL_USER, // Your Gmail address
       pass: process.env.EMAIL_PASS, // App password or regular password
     },
+});
+
+// Configure AWS S3
+const s3 = new AWS.S3({
+    accessKeyId: process.env.AWS_ACCESS_KEY,
+    secretAccessKey: process.env.AWS_SECRET_KEY,
+    region: process.env.AWS_REGION,
+});
+
+// List all buckets to test credentials
+s3.listBuckets((err, data) => {
+  if (err) console.error("Error accessing S3:", err);
+  else console.log("Buckets:", data.Buckets);
+});
+
+// Multer Configuration for File Upload
+const upload = multer({ storage: multer.memoryStorage() });
+
+router.put('/upload-profile-image', authenticateToken, upload.single('image'), async (req, res) => {
+    const { userId } = req.user;
+    const file = req.file;
+
+    if (!file) {
+        return res.status(400).json({ error: "No image file uploaded." });
+    }
+
+    const session = driver.session();
+    try {
+        // Upload to AWS S3
+        const uploadParams = {
+            Bucket: process.env.S3_BUCKET_NAME,
+            Key: `profile-images/${Date.now()}-${file.originalname}`,
+            Body: file.buffer,
+            ContentType: file.mimetype,
+        };
+
+        const result = await s3.upload(uploadParams).promise();
+        const imageUrl = result.Location;
+
+        // Update Neo4j User Node with Image URL
+        const query = `
+            MATCH (u:User {id: $userId})
+            SET u.profileImage = $imageUrl
+            RETURN u.profileImage AS profileImage
+        `;
+        const resultNeo4j = await session.run(query, { userId, imageUrl });
+
+        if (resultNeo4j.records.length === 0) {
+            throw new Error("User not found");
+        }
+
+        res.status(200).json({
+            message: "Profile image uploaded successfully",
+            profileImage: imageUrl,
+        });
+    } catch (err) {
+        console.error("Error uploading profile image:", err);
+        res.status(500).json({ error: "Failed to upload profile image" });
+    } finally {
+        await session.close();
+    }
 });
 
 // GET: Gets all the habits
@@ -348,35 +413,32 @@ router.put('/update-username', authenticateToken, async (req, res) => {
     }
 });
 
-router.get('/user-info', async (req, res) => {
-    const token = req.headers.authorization?.split(" ")[1];
-  
-    if (!token) {
-      return res.status(400).json({ error: "Token is required" });
-    }
-  
+router.get('/user-info', authenticateToken, async (req, res) => {
+    const { userId } = req.user;
+
+    const session = driver.session();
     try {
-      const decoded = jwt.verify(token, SECRET_KEY);
-  
-      const session = driver.session();
-      const query = `
-        MATCH (u:User {id: $userId})
-        RETURN u.firstName AS firstName, u.lastName AS lastName, u.username AS username
-      `;
-  
-      const result = await session.run(query, { userId: decoded.userId });
-  
-      if (result.records.length === 0) {
-        return res.status(404).json({ error: "User not found" });
-      }
-  
-      const { firstName, lastName, username } = result.records[0].toObject();
-      res.status(200).json({ firstName, lastName, username });
+        const query = `
+            MATCH (u:User {id: $userId})
+            RETURN u.firstName AS firstName, u.lastName AS lastName, u.username AS username, u.profileImage AS profileImage
+        `;
+        const result = await session.run(query, { userId });
+
+        if (result.records.length === 0) {
+            return res.status(404).json({ error: "User not found" });
+        }
+
+        const { firstName, lastName, username, profileImage } = result.records[0].toObject();
+        res.status(200).json({ firstName, lastName, username, profileImage });
     } catch (err) {
-      console.error("Error fetching user info:", err);
-      res.status(500).json({ error: "An unexpected error occurred" });
+        console.error("Error fetching user info:", err);
+        res.status(500).json({ error: "An unexpected error occurred" });
+    } finally {
+        await session.close();
     }
 });
+
+module.exports = router;
   
   
 // POST: Create a Friend Request
