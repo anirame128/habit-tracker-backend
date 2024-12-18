@@ -63,50 +63,68 @@ s3.listBuckets((err, data) => {
 // Multer Configuration for File Upload
 const upload = multer({ storage: multer.memoryStorage() });
 
-router.put('/upload-profile-image', authenticateToken, upload.single('image'), async (req, res) => {
-    const { userId } = req.user;
-    const file = req.file;
+router.put('/update-profile', authenticateToken, upload.single('image'), async (req, res) => {
+    const { userId } = req.user; // Extract user ID from token
+    const { username, habits } = req.body; // Extract username and habits from FormData
+    const file = req.file; // Extract uploaded image
 
-    if (!file) {
-        return res.status(400).json({ error: "No image file uploaded." });
+    if (!username) {
+        return res.status(400).json({ error: "Username is required." });
     }
 
     const session = driver.session();
     try {
-        // Upload to AWS S3
-        const uploadParams = {
-            Bucket: process.env.S3_BUCKET_NAME,
-            Key: `profile-images/${Date.now()}-${file.originalname}`,
-            Body: file.buffer,
-            ContentType: file.mimetype,
-        };
+        let imageUrl = null;
 
-        const result = await s3.upload(uploadParams).promise();
-        const imageUrl = result.Location;
+        // Upload the image to S3 if a file is provided
+        if (file) {
+            const uploadParams = {
+                Bucket: process.env.S3_BUCKET_NAME,
+                Key: `profile-images/${Date.now()}-${file.originalname}`,
+                Body: file.buffer,
+                ContentType: file.mimetype,
+            };
 
-        // Update Neo4j User Node with Image URL
+            const result = await s3.upload(uploadParams).promise();
+            imageUrl = result.Location;
+        }
+
+        // Update the user node in Neo4j
         const query = `
             MATCH (u:User {id: $userId})
-            SET u.profileImage = $imageUrl
-            RETURN u.profileImage AS profileImage
+            SET u.username = $username,
+                u.habits = $habits
+            ${imageUrl ? ", u.profileImage = $imageUrl" : ""}
+            RETURN u
         `;
-        const resultNeo4j = await session.run(query, { userId, imageUrl });
+
+        const params = {
+            userId,
+            username,
+            habits: JSON.parse(habits), // Parse habits JSON
+            ...(imageUrl && { imageUrl }),
+        };
+
+        const resultNeo4j = await session.run(query, params);
 
         if (resultNeo4j.records.length === 0) {
-            throw new Error("User not found");
+            return res.status(404).json({ error: "User not found" });
         }
 
         res.status(200).json({
-            message: "Profile image uploaded successfully",
+            message: "Profile updated successfully",
             profileImage: imageUrl,
+            username,
+            habits: JSON.parse(habits),
         });
     } catch (err) {
-        console.error("Error uploading profile image:", err);
-        res.status(500).json({ error: "Failed to upload profile image" });
+        console.error("Error updating profile:", err);
+        res.status(500).json({ error: "Failed to update profile" });
     } finally {
         await session.close();
     }
 });
+
 
 // GET: Gets all the habits
 router.get('/habits', async (req, res) => {
