@@ -361,7 +361,7 @@ router.get('/user-info', async (req, res) => {
       const session = driver.session();
       const query = `
         MATCH (u:User {id: $userId})
-        RETURN u.firstName AS firstName, u.lastName AS lastName
+        RETURN u.firstName AS firstName, u.lastName AS lastName, u.username AS username
       `;
   
       const result = await session.run(query, { userId: decoded.userId });
